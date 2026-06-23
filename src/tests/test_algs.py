@@ -59,11 +59,11 @@ def test_restarted_gmrs():
     x_true = np.array([1, 2, 3, 4]).T
 
     b = A_m @ x_true
-    tolerance = 1e-1
+    tolerance = 1e-8
     abs_tol = tolerance * np.linalg.norm(b)
 
     # sanity check
-    x_sp, _ = sp.sparse.linalg.gmres(A_m, b, rtol=tolerance, restart=4)
+    x_sp, _ = sp.sparse.linalg.gmres(A_m, b, rtol=tolerance, restart=-1)
     res = np.linalg.norm(A_m @ x_sp - b)
 
     assert res < abs_tol

@@ -1,10 +1,11 @@
 import numpy as np
 import pandas as pd
+import scipy as sp
 import time
 from pathlib import Path
 from numpy.typing import NDArray
 from numpy import floating
-from typing import Any
+from typing import Any, Callable
 
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
@@ -50,10 +51,16 @@ def load_data(path: Path):
 
 # TODO: Change API to allow V to be any size, get index j
 def get_krylov(
-    A_m: NDArray[Any], V_m: NDArray[Any], j: int
+    A_m: NDArray[Any],
+    V_m: NDArray[Any],
+    j: int,
+    l_pre: Callable[[NDArray[Any]], NDArray[Any]] | None = None,
 ) -> tuple[NDArray[Any] | None, NDArray[Any]]:
     n, _ = V_m.shape
-    w = A_m @ V_m[:, j]
+    if l_pre is None:
+        w = A_m @ V_m[:, j]
+    else:
+        w = l_pre(A_m @ V_m[:, j])
     h_j = np.zeros((n + 1))
     for i in range(j + 1):
         v_i = V_m[:, i]
@@ -85,6 +92,7 @@ def _gmrs(
     x0: NDArray[Any],
     tol: float = 1e-8,
     max_iter: int = -1,
+    l_pre: Callable[[NDArray[Any]], NDArray[Any]] | None = None,
 ) -> tuple[NDArray[Any], float, list[dict[str, Any]]]:
 
     stats: list[dict[str, Any]] = []
@@ -94,7 +102,10 @@ def _gmrs(
 
     b_norm = np.linalg.norm(b)
 
-    r0 = b - A_m @ x0
+    if l_pre is None:
+        r0 = b - A_m @ x0
+    else:
+        r0 = l_pre(b - A_m @ x0)
     r0_norm = np.linalg.norm(r0)
     g = r0_norm * e1
 
@@ -124,7 +135,7 @@ def _gmrs(
 
     for j in range(lim):
 
-        v_jp1, h_j = get_krylov(A_m, V_m, j)
+        v_jp1, h_j = get_krylov(A_m, V_m, j, l_pre=l_pre)
 
         if max_iter < 0:
             H_m = np.hstack((H_m, h_j[:, None]))
@@ -182,6 +193,7 @@ def gmrs(
     x0: NDArray[Any] | None = None,
     max_inner: int = -1,
     max_restarts: int = 100,
+    l_pre: Callable[[NDArray[Any]], NDArray[Any]] | None = None,
 ) -> tuple[NDArray[Any], float, pd.DataFrame]:
 
     if x0 is None:
@@ -199,9 +211,9 @@ def gmrs(
     res = np.inf
 
     while res > abs_tol and i < max_restarts:
-        print(f"restart {i}")
+        print(f"restart {i}, res: {res} ({res/b_norm})", end="\r")
         used_x0 = x
-        x, res, stats = _gmrs(A_m, b, used_x0, tol, max_iter=max_inner)
+        x, res, stats = _gmrs(A_m, b, used_x0, tol, max_iter=max_inner, l_pre=l_pre)
         for entry in stats:
             entry["restart"] = i
             entry["iteration"] += iter_cum
@@ -212,35 +224,88 @@ def gmrs(
         stats_cum += stats
         i += 1
 
-    converged = res > abs_tol
+    print("\r\033[K", end="")
+
+    converged = res <= abs_tol
 
     stats = pd.DataFrame(stats_cum)
     stats.attrs["method"] = "GMRS"
+    stats.attrs["preconditioner"] = "" if l_pre is None else "Left Precond."
     stats.attrs["restarts"] = i - 1
     stats.attrs["max_inner"] = max_inner
     stats.attrs["converged"] = converged
-    stats.attrs["tolerance"] = tol
+    stats.attrs["rel_tolerance"] = tol
+    stats.attrs["tolerance"] = abs_tol
+    stats.attrs["residual"] = res
+    stats.attrs["rel_residual"] = res / b_norm
+
     return x, res, stats
 
 
 def plot_stats(stats: list[pd.DataFrame], out_path: Path):
-    _, axs = plt.subplots(nrows=2, sharex=True)
-    ax1: Axes = axs[0]
-    ax2: Axes = axs[1]
+    time_fig, t_ax = plt.subplots()
+
+    res_fig, res_ax = plt.subplots()
 
     for df in stats:
-        label = f"{df.attrs["method"]} ({df.attrs["max_inner"]})"
-        df.plot(y="time", ax=ax1, use_index=True, label=label)
-        df.plot(y="res", ax=ax2, use_index=True, label=label)
+        label = f"{df.attrs["method"]} ({df.attrs["max_inner"]}) {df.attrs["preconditioner"]}"
+        df.plot(y="time", ax=t_ax, use_index=True, label=label)
+        df.plot(y="rel_res", ax=res_ax, use_index=True, label=label)
 
-    ax2.axhline(
-        y=stats[0].attrs["tolerance"],
+    res_ax.axhline(
+        y=stats[0].attrs["rel_tolerance"],
         ls="--",
         color="tab:red",
     )
-    ax2.set_yscale("log")
-    ax1.set_ylabel("time")
-    ax2.set_ylabel("residual")
-    ax1.set_xlabel("iterations")
+    res_ax.set_yscale("log")
+    res_ax.set_ylabel("relative residual")
+    res_ax.set_xlabel("iterations")
+    res_ax.grid()
+    res_ax.get_legend().remove()
+    res_fig.legend()
+    res_fig.savefig(out_path / "residual.png", dpi=300, bbox_inches="tight")
 
-    plt.savefig(out_path / "plot.png")
+    t_ax.set_ylabel("time")
+    t_ax.set_xlabel("iterations")
+    t_ax.grid()
+    t_ax.get_legend().remove()
+    time_fig.legend()
+    time_fig.savefig(out_path / "time.png", dpi=300, bbox_inches="tight")
+
+
+def jacobi_preconditioner(
+    A_m: NDArray[Any],
+) -> Callable[[NDArray[Any]], NDArray[Any]]:
+    diag = np.diag(A_m)
+    return lambda x: x / diag
+
+
+def gauss_seidel_preconditioner(
+    A_m: NDArray[Any],
+) -> Callable[[NDArray[Any]], NDArray[Any]]:
+    lower_tr = np.tril(A_m)
+    return lambda x: sp.linalg.solve_triangular(lower_tr, x, lower=True)
+
+
+def ILU(
+    A_m: NDArray[Any], pattern: Callable[[int, int], bool] | None = None
+) -> NDArray[Any]:
+    if pattern is None:
+        pattern = lambda i, j: not np.isclose(A_m[i, j], 0.0)
+    M_m = A_m.copy()
+    n = M_m.shape[0]
+    for i in range(1, n):
+        for j in range(i):
+            if pattern(i, j):
+                M_m[i, j] = M_m[i, j] / M_m[j, j]
+            for k in range(j + 1, n):
+                if pattern(i, k):
+                    M_m[i, k] = M_m[i, k] - M_m[i, j] * M_m[j, k]
+    return M_m
+
+
+def ILU_conditioner(
+    A_m: NDArray[Any],
+) -> Callable[[NDArray[Any]], NDArray[Any]]:
+    lower_tr = np.tril(A_m)
+    return lambda x: sp.linalg.solve_triangular(lower_tr, x, lower=True)

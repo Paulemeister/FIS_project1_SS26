@@ -7,6 +7,7 @@ from numpy import floating
 from typing import Any
 
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 
 Mat = NDArray[np.floating]
 
@@ -49,20 +50,19 @@ def load_data(path: Path):
 
 # TODO: Change API to allow V to be any size, get index j
 def get_krylov(
-    A_m: NDArray[Any],
-    V_m: NDArray[Any],
+    A_m: NDArray[Any], V_m: NDArray[Any], j: int
 ) -> tuple[NDArray[Any] | None, NDArray[Any]]:
-    n, k = V_m.shape
-    w = A_m @ V_m[:, -1]
+    n, _ = V_m.shape
+    w = A_m @ V_m[:, j]
     h_j = np.zeros((n + 1))
-    for i in range(k):
+    for i in range(j + 1):
         v_i = V_m[:, i]
         h_i_j = np.dot(v_i, w)
         h_j[i] = h_i_j
         w = w - h_i_j * v_i
 
     h_jp1_j = np.linalg.norm(w)
-    h_j[k] = h_jp1_j
+    h_j[j + 1] = h_jp1_j
 
     if np.isclose(h_jp1_j, 0.0):
         # Krilov Space already spanned by existing vectors
@@ -79,18 +79,15 @@ def Givens(a: floating, b: floating) -> tuple[floating, floating, floating]:
     return c, s, r
 
 
-def gmrs(
+def _gmrs(
     A_m: NDArray[Any],
     b: NDArray[Any],
+    x0: NDArray[Any],
     tol: float = 1e-8,
-    x0: NDArray[Any] | None = None,
-    return_res: bool = False,
-) -> tuple[NDArray[Any], pd.DataFrame] | NDArray[Any]:
-    if x0 is None:
-        x0 = np.zeros_like(b)
+    max_iter: int = -1,
+) -> tuple[NDArray[Any], float, list[dict[str, Any]]]:
 
-    stats: pd.DataFrame | None = None
-    t1: float | None = None
+    stats: list[dict[str, Any]] = []
 
     M = A_m.shape[0]
     e1 = np.eye(M + 1)[:, 0]
@@ -99,24 +96,40 @@ def gmrs(
 
     r0 = b - A_m @ x0
     r0_norm = np.linalg.norm(r0)
-    V_m = r0[:, None] / r0_norm
     g = r0_norm * e1
 
-    H_m = np.empty((M + 1, 0))
+    if max_iter < 0:
+        V_m = r0[:, None] / r0_norm
+        H_m = np.empty((M + 1, 0))
+    else:
+        v1 = r0 / r0_norm
+
+        V_m = np.zeros((M, max_iter + 1))
+        V_m[:, 0] = v1
+        H_m = np.zeros((M + 1, max_iter))
 
     c = np.zeros(M)
     s = np.zeros(M)
 
-    res_norm = np.inf
+    res_norm: float = np.inf
 
-    if return_res:
-        t1 = time.perf_counter()
-        stats = pd.DataFrame(columns=["res", "time"])
+    t1 = time.perf_counter()
 
-    for j in range(M):
-        v_jp1, h_j = get_krylov(A_m, V_m)
+    if max_iter < 0:
+        lim = M
+    else:
+        lim = min(max_iter, M)
 
-        H_m = np.hstack((H_m, h_j[:, None]))
+    j = 0
+
+    for j in range(lim):
+
+        v_jp1, h_j = get_krylov(A_m, V_m, j)
+
+        if max_iter < 0:
+            H_m = np.hstack((H_m, h_j[:, None]))
+        else:
+            H_m[:, j] = h_j
 
         for k in range(0, j):
             G_m = np.array([[c[k], s[k]], [-s[k], c[k]]])
@@ -129,24 +142,29 @@ def gmrs(
 
         g[j : (j + 2)] = G_m @ g[j : (j + 2)]
 
-        res_norm = abs(g[j + 1])  # TODO: Check if necessary
+        res_norm = np.abs(g[j + 1])  # TODO: Check if necessary
 
-        if return_res:
-            assert stats is not None and t1 is not None
-            stats.loc[j, "res"] = res_norm
-            stats.loc[j, "rel_res"] = res_norm / b_norm
-            stats.loc[j, "time"] = time.perf_counter() - t1
-            stats.loc[j, "inner"] = True
+        stats.append(
+            {
+                "res": res_norm,
+                "rel_res": res_norm / b_norm,
+                "time": time.perf_counter() - t1,
+                "iteration": j + 1,
+            }
+        )
 
         if v_jp1 is None:  # Krylov space already spanned by Basis
             break
 
-        V_m = np.hstack((V_m, v_jp1[:, None]))
+        if max_iter < 0:
+            V_m = np.hstack((V_m, v_jp1[:, None]))
+        else:
+            V_m[:, j + 1] = v_jp1
 
         if res_norm < tol * b_norm:
             break
 
-    size = H_m.shape[1]
+    size = j + 1
 
     R_m = H_m[:size, :size]
 
@@ -154,22 +172,75 @@ def gmrs(
 
     x = x0 + V_m[:, :size] @ y
 
-    if return_res:
-        assert stats is not None and t1 is not None
-        stats.attrs["res"] = res_norm
-        stats.attrs["time"] = time.perf_counter() - t1
-        stats.attrs["method"] = "GMRS"
-        stats.attrs["tol"] = tol
-        return x, stats
-    return x
+    return x, res_norm, stats
 
 
-def plot_stats(stats: list[pd.DataFrame]):
-    fig, [ax1, ax2] = plt.subplots(nrows=2)
+def gmrs(
+    A_m: NDArray[Any],
+    b: NDArray[Any],
+    tol: float = 1e-8,
+    x0: NDArray[Any] | None = None,
+    max_inner: int = -1,
+    max_restarts: int = 100,
+) -> tuple[NDArray[Any], float, pd.DataFrame]:
+
+    if x0 is None:
+        x0 = np.zeros_like(b)
+
+    stats_cum: list[dict[str, Any]] = []
+
+    iter_cum = 0
+    time_cum = 0
+    i = 0
+
+    x = x0
+    b_norm = np.linalg.norm(b)
+    abs_tol = tol * b_norm
+    res = np.inf
+
+    while res > abs_tol and i < max_restarts:
+        print(f"restart {i}")
+        used_x0 = x
+        x, res, stats = _gmrs(A_m, b, used_x0, tol, max_iter=max_inner)
+        for entry in stats:
+            entry["restart"] = i
+            entry["iteration"] += iter_cum
+            entry["time"] += time_cum
+
+        iter_cum = stats[-1]["iteration"]
+        time_cum = stats[-1]["time"]
+        stats_cum += stats
+        i += 1
+
+    converged = res > abs_tol
+
+    stats = pd.DataFrame(stats_cum)
+    stats.attrs["method"] = "GMRS"
+    stats.attrs["restarts"] = i - 1
+    stats.attrs["max_inner"] = max_inner
+    stats.attrs["converged"] = converged
+    stats.attrs["tolerance"] = tol
+    return x, res, stats
+
+
+def plot_stats(stats: list[pd.DataFrame], out_path: Path):
+    _, axs = plt.subplots(nrows=2, sharex=True)
+    ax1: Axes = axs[0]
+    ax2: Axes = axs[1]
+
     for df in stats:
-        df.plot(y="time", ax=ax1, use_index=True)
-        df.plot(y="res", ax=ax2, use_index=True)
+        label = f"{df.attrs["method"]} ({df.attrs["max_inner"]})"
+        df.plot(y="time", ax=ax1, use_index=True, label=label)
+        df.plot(y="res", ax=ax2, use_index=True, label=label)
 
+    ax2.axhline(
+        y=stats[0].attrs["tolerance"],
+        ls="--",
+        color="tab:red",
+    )
     ax2.set_yscale("log")
+    ax1.set_ylabel("time")
+    ax2.set_ylabel("residual")
+    ax1.set_xlabel("iterations")
 
-    fig.show()
+    plt.savefig(out_path / "plot.png")

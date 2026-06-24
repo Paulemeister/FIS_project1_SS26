@@ -2,54 +2,11 @@ import numpy as np
 import pandas as pd
 import scipy as sp
 import time
-from pathlib import Path
 from numpy.typing import NDArray
 from numpy import floating
 from typing import Any, Callable
 
-import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
 
-Mat = NDArray[np.floating]
-
-
-def load_data(path: Path):
-    with open(path) as f:
-        stor_type = f.readline().strip()
-        if stor_type not in ["s", "n"]:
-            raise Exception("bad header")
-
-        data = np.loadtxt(f)
-
-    n_diag, _ = data[0].astype(int)
-
-    diag_vals = data[1 : (n_diag + 1), 1]
-
-    bindx = data[0:, 0].astype(int)
-    vals = data[0:, 1]
-
-    # FIXME: This is bad, use sparse instead
-
-    out = np.diag(diag_vals)
-
-    row_ptr = bindx[1]
-
-    for row_ix in range(n_diag):
-        next_row_ptr = bindx[2 + row_ix]
-        for j in range(next_row_ptr - row_ptr):
-            col_ix = bindx[row_ptr + j] - 1
-            val = vals[row_ptr + j]
-            out[row_ix, col_ix] = val
-
-        row_ptr = next_row_ptr
-
-    if stor_type == "s":
-        out += np.tril(out, k=-1).T
-
-    return out
-
-
-# TODO: Change API to allow V to be any size, get index j
 def get_krylov(
     A_m: NDArray[Any],
     V_m: NDArray[Any],
@@ -73,7 +30,6 @@ def get_krylov(
 
     if np.isclose(h_jp1_j, 0.0):
         # Krilov Space already spanned by existing vectors
-        # TODO: throw exception here?
         return None, h_j
     v_jp1 = w / h_jp1_j
     return v_jp1, h_j
@@ -86,7 +42,7 @@ def Givens(a: floating, b: floating) -> tuple[floating, floating, floating]:
     return c, s, r
 
 
-def _gmrs(
+def _gmres(
     A_m: NDArray[Any],
     b: NDArray[Any],
     x0: NDArray[Any],
@@ -186,7 +142,7 @@ def _gmrs(
     return x, res_norm, stats
 
 
-def gmrs(
+def gmres(
     A_m: NDArray[Any],
     b: NDArray[Any],
     tol: float = 1e-8,
@@ -213,7 +169,7 @@ def gmrs(
     while res > abs_tol and i < max_restarts:
         print(f"restart {i}, res: {res} ({res/b_norm})", end="\r")
         used_x0 = x
-        x, res, stats = _gmrs(A_m, b, used_x0, tol, max_iter=max_inner, l_pre=l_pre)
+        x, res, stats = _gmres(A_m, b, used_x0, tol, max_iter=max_inner, l_pre=l_pre)
         for entry in stats:
             entry["restart"] = i
             entry["iteration"] += iter_cum
@@ -224,6 +180,7 @@ def gmrs(
         stats_cum += stats
         i += 1
 
+    # clear line
     print("\r\033[K", end="")
 
     converged = res <= abs_tol
@@ -240,37 +197,6 @@ def gmrs(
     stats.attrs["rel_residual"] = res / b_norm
 
     return x, res, stats
-
-
-def plot_stats(stats: list[pd.DataFrame], out_path: Path):
-    time_fig, t_ax = plt.subplots()
-
-    res_fig, res_ax = plt.subplots()
-
-    for df in stats:
-        label = f"{df.attrs["method"]} ({df.attrs["max_inner"]}) {df.attrs["preconditioner"]}"
-        df.plot(y="time", ax=t_ax, use_index=True, label=label)
-        df.plot(y="rel_res", ax=res_ax, use_index=True, label=label)
-
-    res_ax.axhline(
-        y=stats[0].attrs["rel_tolerance"],
-        ls="--",
-        color="tab:red",
-    )
-    res_ax.set_yscale("log")
-    res_ax.set_ylabel("relative residual")
-    res_ax.set_xlabel("iterations")
-    res_ax.grid()
-    res_ax.get_legend().remove()
-    res_fig.legend()
-    res_fig.savefig(out_path / "residual.png", dpi=300, bbox_inches="tight")
-
-    t_ax.set_ylabel("time")
-    t_ax.set_xlabel("iterations")
-    t_ax.grid()
-    t_ax.get_legend().remove()
-    time_fig.legend()
-    time_fig.savefig(out_path / "time.png", dpi=300, bbox_inches="tight")
 
 
 def jacobi_preconditioner(

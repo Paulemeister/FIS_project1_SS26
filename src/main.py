@@ -4,6 +4,7 @@ from lib.gmres import (
     gmres,
     jacobi_preconditioner,
     gauss_seidel_preconditioner,
+    ILU_preconditioner,
 )
 from lib.cg import CG
 import numpy as np
@@ -25,7 +26,7 @@ def gmres_analysis():
     tol = 1e-8
     x0 = np.zeros(n)
 
-    restarts = [-1, 10, 25, 50, 20]
+    restarts = [-1, 10, 25, 50, 200]
     # restarts = [200, 300]
     precons = [  # type: ignore
         ("-", None),
@@ -33,6 +34,10 @@ def gmres_analysis():
         (
             "GS",
             gauss_seidel_preconditioner(A_m),
+        ),
+        (
+            "ILU",
+            ILU_preconditioner(A_m),
         ),
     ]
 
@@ -120,4 +125,4 @@ if __name__ == "__main__":
     OUT_DIR.mkdir(exist_ok=True)
 
     gmres_analysis()
-    cg_analysis()
+    # cg_analysis()

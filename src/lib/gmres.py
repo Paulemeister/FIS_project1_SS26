@@ -117,6 +117,15 @@ def _gmres(
                 "rel_res": res_norm / b_norm,
                 "time": time.perf_counter() - t1,
                 "iteration": j + 1,
+                "orth": (
+                    np.dot(
+                        V_m[:, 0],
+                        # V_m[:, j],
+                        v_jp1,
+                    )
+                    if v_jp1 is not None
+                    else np.nan
+                ),
             }
         )
 
@@ -224,14 +233,24 @@ def ILU(
         for j in range(i):
             if pattern(i, j):
                 M_m[i, j] = M_m[i, j] / M_m[j, j]
-            for k in range(j + 1, n):
-                if pattern(i, k):
-                    M_m[i, k] = M_m[i, k] - M_m[i, j] * M_m[j, k]
+
+                for k in range(j + 1, n):
+                    if pattern(i, k):
+                        M_m[i, k] = M_m[i, k] - M_m[i, j] * M_m[j, k]
     return M_m
 
 
-def ILU_conditioner(
+def ILU_preconditioner(
     A_m: NDArray[Any],
 ) -> Callable[[NDArray[Any]], NDArray[Any]]:
-    lower_tr = np.tril(A_m)
-    return lambda x: sp.linalg.solve_triangular(lower_tr, x, lower=True)
+    n = A_m.shape[0]
+    M_m = ILU(A_m)
+    L_m = np.tril(M_m, k=-1) + np.eye(n)
+    U_m = np.triu(M_m)
+
+    def solve(x: NDArray[Any]):
+        y2 = sp.linalg.solve_triangular(L_m, x, lower=True, unit_diagonal=True)
+        y1 = sp.linalg.solve_triangular(U_m, y2, lower=False)
+        return y1
+
+    return lambda x: solve(x)

@@ -1,10 +1,12 @@
 from lib.gmres import *
+from scipy.sparse import csr_array
 
 # import scipy as sp
 
 
 def test_krylov():
     A_m = np.array([[12, -5, 0, 3], [0, 4, 0, 0], [0, 0, 2, 0], [5, -2, -3, 14]])
+    A_m = csr_array(A_m)
     V_m = np.array([[1, 0, 0, 0]]).T
 
     for i in range(3):
@@ -26,6 +28,7 @@ def test_gmres():
             [0.24196227, -1.91328024, -1.72491783, -0.56218753],
         ]
     )
+    A_m = csr_array(A_m)
     x_true = np.array([1, 2, 3, 4]).T
 
     b = A_m @ x_true

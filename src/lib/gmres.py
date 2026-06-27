@@ -3,12 +3,14 @@ import pandas as pd
 import scipy as sp
 import time
 from numpy.typing import NDArray
+from scipy.sparse import csr_array
 from numpy import floating
 from typing import Any, Callable
+from lib import check_pd
 
 
 def get_krylov(
-    A_m: NDArray[Any],
+    A_m: csr_array,
     V_m: NDArray[Any],
     j: int,
     l_pre: Callable[[NDArray[Any]], NDArray[Any]] | None = None,
@@ -43,7 +45,7 @@ def Givens(a: floating, b: floating) -> tuple[floating, floating, floating]:
 
 
 def _gmres(
-    A_m: NDArray[Any],
+    A_m: csr_array,
     b: NDArray[Any],
     x0: NDArray[Any],
     tol: float = 1e-8,
@@ -51,30 +53,31 @@ def _gmres(
     l_pre: Callable[[NDArray[Any]], NDArray[Any]] | None = None,
 ) -> tuple[NDArray[Any], float, list[dict[str, Any]]]:
 
-    stats: list[dict[str, Any]] = []
-
-    M = A_m.shape[0]
-    e1 = np.eye(M + 1)[:, 0]
-
-    b_norm = np.linalg.norm(b)
-
     if l_pre is None:
         r0 = b - A_m @ x0
     else:
         r0 = l_pre(b - A_m @ x0)
+
+    # initialize helper variables
+    stats: list[dict[str, Any]] = []
+    M = A_m.shape[0]
+    e1 = np.eye(M + 1)[:, 0]
+    b_norm = np.linalg.norm(b)
     r0_norm = np.linalg.norm(r0)
-    g = r0_norm * e1
+    arr_size = 0
+    use_dyn_arr_size = max_iter < 0
 
-    if max_iter < 0:
-        V_m = r0[:, None] / r0_norm
-        H_m = np.empty((M + 1, 0))
+    if use_dyn_arr_size:
+        arr_size = 10
+        V_m = np.zeros((M, arr_size + 1))
+        H_m = np.zeros((M + 1, arr_size))
     else:
-        v1 = r0 / r0_norm
-
         V_m = np.zeros((M, max_iter + 1))
-        V_m[:, 0] = v1
         H_m = np.zeros((M + 1, max_iter))
 
+    v1 = r0 / r0_norm
+    V_m[:, 0] = v1
+    g = r0_norm * e1
     c = np.zeros(M)
     s = np.zeros(M)
 
@@ -93,10 +96,16 @@ def _gmres(
 
         v_jp1, h_j = get_krylov(A_m, V_m, j, l_pre=l_pre)
 
-        if max_iter < 0:
-            H_m = np.hstack((H_m, h_j[:, None]))
-        else:
-            H_m[:, j] = h_j
+        if use_dyn_arr_size and j == arr_size:
+            arr_size *= 2
+            new_V_m = np.zeros((M, arr_size + 1))
+            new_H_m = np.zeros((M + 1, arr_size))
+            new_V_m[:, :j] = V_m[:, :j]
+            new_H_m[:, :j] = H_m[:, :j]
+            V_m = new_V_m
+            H_m = new_H_m
+
+        H_m[:, j] = h_j
 
         for k in range(0, j):
             G_m = np.array([[c[k], s[k]], [-s[k], c[k]]])
@@ -132,10 +141,7 @@ def _gmres(
         if v_jp1 is None:  # Krylov space already spanned by Basis
             break
 
-        if max_iter < 0:
-            V_m = np.hstack((V_m, v_jp1[:, None]))
-        else:
-            V_m[:, j + 1] = v_jp1
+        V_m[:, j + 1] = v_jp1
 
         if res_norm < tol * b_norm:
             break
@@ -152,7 +158,7 @@ def _gmres(
 
 
 def gmres(
-    A_m: NDArray[Any],
+    A_m: csr_array,
     b: NDArray[Any],
     tol: float = 1e-8,
     x0: NDArray[Any] | None = None,
@@ -163,6 +169,30 @@ def gmres(
 
     if x0 is None:
         x0 = np.zeros_like(b)
+
+    if not check_pd(A_m):
+        print("Error: Matrix not PD")
+
+        stats = pd.DataFrame(
+            [
+                {
+                    "res": np.nan,
+                    "rel_res": np.nan,
+                    "error": np.nan,
+                    "time": np.nan,
+                    "iteration": 0,
+                    "orth": np.nan,
+                }
+            ]
+        )
+        stats.attrs["method"] = "GMRES"
+        stats.attrs["preconditioner"] = ""
+        stats.attrs["converged"] = False
+        stats.attrs["rel_tolerance"] = tol
+        stats.attrs["tolerance"] = tol * np.linalg.norm(b)
+        stats.attrs["residual"] = np.nan
+        stats.attrs["rel_residual"] = np.nan
+        return x0, np.nan, stats
 
     stats_cum: list[dict[str, Any]] = []
 
@@ -204,31 +234,31 @@ def gmres(
     stats.attrs["tolerance"] = abs_tol
     stats.attrs["residual"] = res
     stats.attrs["rel_residual"] = res / b_norm
+    stats.attrs["total_time"] = time_cum
+    stats.attrs["iterations"] = iter_cum
 
     return x, res, stats
 
 
 def jacobi_preconditioner(
-    A_m: NDArray[Any],
+    A_m: csr_array,
 ) -> Callable[[NDArray[Any]], NDArray[Any]]:
-    diag = np.diag(A_m)
+    diag = A_m.diagonal()
     return lambda x: x / diag
 
 
 def gauss_seidel_preconditioner(
-    A_m: NDArray[Any],
+    A_m: csr_array,
 ) -> Callable[[NDArray[Any]], NDArray[Any]]:
-    lower_tr = np.tril(A_m)
-    return lambda x: sp.linalg.solve_triangular(lower_tr, x, lower=True)
+    lower_tr = sp.sparse.tril(A_m, format="csr")
+    return lambda x: sp.sparse.linalg.spsolve_triangular(lower_tr, x, lower=True)
 
 
-def ILU(
-    A_m: NDArray[Any], pattern: Callable[[int, int], bool] | None = None
-) -> NDArray[Any]:
+def ILU(A_m: csr_array, pattern: Callable[[int, int], bool] | None = None) -> csr_array:
     if pattern is None:
-        pattern = lambda i, j: not np.isclose(A_m[i, j], 0.0)
-    M_m = A_m.copy()
-    n = M_m.shape[0]
+        pattern = lambda i, j: A_m[i, j] != 0.0
+    M_m = sp.sparse.lil_array(A_m)
+    n = A_m.shape[0]
     for i in range(1, n):
         for j in range(i):
             if pattern(i, j):
@@ -237,20 +267,23 @@ def ILU(
                 for k in range(j + 1, n):
                     if pattern(i, k):
                         M_m[i, k] = M_m[i, k] - M_m[i, j] * M_m[j, k]
-    return M_m
+    return M_m.tocsr()
 
 
 def ILU_preconditioner(
-    A_m: NDArray[Any],
+    A_m: csr_array,
 ) -> Callable[[NDArray[Any]], NDArray[Any]]:
-    n = A_m.shape[0]
-    M_m = ILU(A_m)
-    L_m = np.tril(M_m, k=-1) + np.eye(n)
-    U_m = np.triu(M_m)
+    # n = A_m.shape[0]
+    # M_m = ILU(A_m)
+    # L_m = sp.sparse.tril(M_m, k=-1, format="csr") + np.eye(n)
+    # U_m = sp.sparse.triu(M_m, format="csr")
+    res_obj = sp.sparse.linalg.spilu(A_m)
+    L_m = res_obj.L
+    U_m = res_obj.U
 
     def solve(x: NDArray[Any]):
-        y2 = sp.linalg.solve_triangular(L_m, x, lower=True, unit_diagonal=True)
-        y1 = sp.linalg.solve_triangular(U_m, y2, lower=False)
+        y2 = sp.sparse.linalg.spsolve_triangular(L_m, x, lower=True, unit_diagonal=True)
+        y1 = sp.sparse.linalg.spsolve_triangular(U_m, y2, lower=False)
         return y1
 
     return lambda x: solve(x)

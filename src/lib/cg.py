@@ -2,12 +2,13 @@ import numpy as np
 import pandas as pd
 import time
 from numpy.typing import NDArray
+from scipy.sparse import csr_array
 from typing import Any
 from lib.misc import check_sym, check_pd
 
 
 def CG(
-    A_m: NDArray[Any],
+    A_m: csr_array,
     b: NDArray[Any],
     x0: NDArray[Any] | None = None,
     max_iter: int = 10000,
@@ -54,12 +55,12 @@ def CG(
     b_norm = np.linalg.norm(b)
     abs_tol = tol * b_norm
 
-    x_m = x0
-    x_mp1 = np.zeros_like(x0)
-    r_m = b - A_m @ x0
-    r_mp1 = np.zeros_like(x0)
+    x_i = x0
+    x_ip1 = np.zeros_like(x0)
+    r_i = b - A_m @ x0
+    r_ip1 = np.zeros_like(x0)
 
-    p_m = r_m
+    p_i = r_i
 
     converged = False
     stats_list = []  # type: ignore
@@ -72,24 +73,24 @@ def CG(
                 f"iteration: {i}, residual (rel): {res_norm} ({rel_res_norm})", end="\r"
             )
 
-        A_p_prod = A_m @ p_m
+        A_p_prod = A_m @ p_i
 
-        a_m = np.dot(r_m, r_m) / np.dot(p_m, A_p_prod)
+        a_m = np.dot(r_i, r_i) / np.dot(p_i, A_p_prod)
 
-        x_mp1 = x_m + a_m * p_m
-        r_mp1 = r_m - a_m * A_p_prod
+        x_ip1 = x_i + a_m * p_i
+        r_ip1 = r_i - a_m * A_p_prod
 
-        b_m = np.dot(r_mp1, r_mp1) / np.dot(r_m, r_m)
-        p_mp1 = r_mp1 + b_m * p_m
+        b_i = np.dot(r_ip1, r_ip1) / np.dot(r_i, r_i)
+        p_ip1 = r_ip1 + b_i * p_i
 
         # update variables
-        p_m = p_mp1
-        r_m = r_mp1
-        x_m = x_mp1
+        p_i = p_ip1
+        r_i = r_ip1
+        x_i = x_ip1
 
-        res_norm = np.linalg.norm(r_mp1)  # type: ignore
+        res_norm = np.linalg.norm(r_ip1)  # type: ignore
         rel_res_norm = res_norm / b_norm  # type: ignore
-        error = solution - x_mp1
+        error = solution - x_ip1
         error_A_norm = np.sqrt(np.dot(A_m @ error, error))
 
         stats_list.append(
@@ -117,5 +118,6 @@ def CG(
     stats.attrs["tolerance"] = tol * b_norm
     stats.attrs["residual"] = res_norm
     stats.attrs["rel_residual"] = res_norm / b_norm
-
-    return x_mp1, res_norm, stats
+    stats.attrs["total_time"] = time.perf_counter() - t1
+    stats.attrs["iterations"] = i
+    return x_ip1, res_norm, stats

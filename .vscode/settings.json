@@ -9,5 +9,16 @@
     },
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "mypy-type-checker.cwd": "${workspaceFolder}/src"
+    "mypy-type-checker.cwd": "${workspaceFolder}/src",
+    "cSpell.enabledFileTypes": {
+        "typst": true,
+        "*": false
+    },
+    "cSpell.words": [
+        "Gauss-Seidel",
+        "GMRES",
+        "Krylov-Vector",
+        "preconditioner",
+        "preconditioners"
+    ]
 }

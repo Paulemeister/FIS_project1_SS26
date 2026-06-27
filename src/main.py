@@ -1,5 +1,5 @@
 from pathlib import Path
-from lib import load_data, plot_gmres_stats, plot_cg_stats
+from lib import load_data, plot_gmres_stats, plot_cg_stats, save_stats, plot_matrix
 from lib.gmres import (
     gmres,
     jacobi_preconditioner,
@@ -26,7 +26,7 @@ def gmres_analysis():
     tol = 1e-8
     x0 = np.zeros(n)
 
-    restarts = [-1, 10, 25, 50, 200]
+    restarts = [-1, 10, 25, 50, 200, 555]
     # restarts = [200, 300]
     precons = [  # type: ignore
         ("-", None),
@@ -73,6 +73,11 @@ def gmres_analysis():
             stats.append(gmres_stats)
 
     plot_gmres_stats(stats, SUB_OUT_DIR)
+    save_stats(
+        stats,
+        SUB_OUT_DIR / "gmres_stats.csv",
+    )
+    plot_matrix(SUB_OUT_DIR / "gmres_matrix.png", A_m)
 
 
 def cg_analysis():
@@ -117,12 +122,17 @@ def cg_analysis():
         print(f"actual residual (rel): \t\t{res_true} ({res_rel_true})")
 
         stats.append(cg_stats)
+        plot_matrix(SUB_OUT_DIR / f"cg_matrix_{label}.png", A_m)
 
     plot_cg_stats(stats, SUB_OUT_DIR)
+    save_stats(
+        stats,
+        SUB_OUT_DIR / "CG_stats.csv",
+    )
 
 
 if __name__ == "__main__":
     OUT_DIR.mkdir(exist_ok=True)
 
-    gmres_analysis()
-    # cg_analysis()
+    # gmres_analysis()
+    cg_analysis()

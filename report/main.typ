@@ -39,8 +39,7 @@ The Task for this Project was to implement the General Minimum Residual (GMRES) 
 
 As well as the Conjugate Gradient Method without preconditioning.
 
-= Theory
-#lorem(120)
+#include "theory.typ"
 
 = Implementation
 Both Methods were implemented in Python utilizing the sparse linear algebra functions of _scipy.sparse.linalg_.

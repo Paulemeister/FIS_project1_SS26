@@ -134,5 +134,5 @@ def cg_analysis():
 if __name__ == "__main__":
     OUT_DIR.mkdir(exist_ok=True)
 
-    # gmres_analysis()
+    gmres_analysis()
     cg_analysis()

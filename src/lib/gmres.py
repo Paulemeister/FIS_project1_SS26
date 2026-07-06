@@ -255,31 +255,35 @@ def gauss_seidel_preconditioner(
 
 
 def ILU(A_m: csr_array, pattern: Callable[[int, int], bool] | None = None) -> csr_array:
-    if pattern is None:
-        pattern = lambda i, j: A_m[i, j] != 0.0
-    M_m = sp.sparse.lil_array(A_m)
+
+    # FIXME: exploit sparse array, this algorithm is creating a dense matrix
+
+    M_m = A_m.toarray()
     n = A_m.shape[0]
+
+    if pattern is None:
+        mask: NDArray[np.bool] = np.logical_not(np.isclose(M_m, 0.0))
+    else:
+        mask: NDArray[np.bool] = np.fromfunction(pattern, (n, n), dtype=int)  # type: ignore
+
     for i in range(1, n):
         for j in range(i):
-            if pattern(i, j):
+            if mask[i, j]:
                 M_m[i, j] = M_m[i, j] / M_m[j, j]
 
                 for k in range(j + 1, n):
-                    if pattern(i, k):
+                    if mask[i, k]:
                         M_m[i, k] = M_m[i, k] - M_m[i, j] * M_m[j, k]
-    return M_m.tocsr()
+    return csr_array(M_m)
 
 
 def ILU_preconditioner(
     A_m: csr_array,
 ) -> Callable[[NDArray[Any]], NDArray[Any]]:
-    # n = A_m.shape[0]
-    # M_m = ILU(A_m)
-    # L_m = sp.sparse.tril(M_m, k=-1, format="csr") + np.eye(n)
-    # U_m = sp.sparse.triu(M_m, format="csr")
-    res_obj = sp.sparse.linalg.spilu(A_m)
-    L_m = res_obj.L
-    U_m = res_obj.U
+    n = A_m.shape[0]
+    M_m = ILU(A_m)
+    L_m = sp.sparse.tril(M_m, k=-1, format="csr") + np.eye(n)
+    U_m = sp.sparse.triu(M_m, format="csr")
 
     def solve(x: NDArray[Any]):
         y2 = sp.sparse.linalg.spsolve_triangular(L_m, x, lower=True, unit_diagonal=True)

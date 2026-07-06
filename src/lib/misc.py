@@ -11,11 +11,14 @@ RES_STR = r"$\|r\|$"
 ERR_A_STR = r"$\|e\|_A$"
 
 
-def load_data(path: Path) -> csr_array:
+def load_data(path: Path, stor_type: str | None = None) -> csr_array:
     with open(path) as f:
-        stor_type = f.readline().strip()
-        if stor_type not in ["s", "n"]:
-            raise Exception("bad header")
+        if stor_type is None:
+            stor_type = f.readline().strip()
+            if stor_type not in ["s", "n"]:
+                raise Exception("bad header")
+        else:
+            f.readline()
 
         data = np.loadtxt(f)
 
@@ -26,7 +29,6 @@ def load_data(path: Path) -> csr_array:
     bindx = data[0:, 0].astype(int)
     vals = data[0:, 1]
 
-    # FIXME: This is bad, use sparse instead
     out = lil_array((n_diag, n_diag))
     out.setdiag(diag_vals)
 
@@ -38,6 +40,7 @@ def load_data(path: Path) -> csr_array:
             col_ix = bindx[row_ptr + j] - 1
             val = vals[row_ptr + j]
             out[row_ix, col_ix] = val
+
             if stor_type == "s":
                 out[col_ix, row_ix] = val
 
@@ -81,7 +84,7 @@ def make_plot(
     if log:
         ax.set_yscale("log")
     ax.set_ylabel(x_label)
-    ax.set_xlabel("iterations")
+    ax.set_xlabel("Iterations")
     ax.grid()
     if (legend := ax.get_legend()) is not None:
         legend.remove()
@@ -185,7 +188,7 @@ def plot_cg_stats(stats: list[pd.DataFrame], out_path: Path):
         )
 
         ax.set_yscale("log")
-        ax.set_xlabel("iterations")
+        ax.set_xlabel("Iterations")
         ax.set_ylabel("")
 
         ax.grid()
@@ -209,8 +212,10 @@ def check_sym(A: csr_array):
 
 
 def check_pd(A: csr_array):
-
-    sigma, _ = sp.sparse.linalg.eigs(A)
+    try:
+        sigma, _ = sp.sparse.linalg.eigs(A)
+    except TypeError:
+        sigma = sp.linalg.eigvals(A.toarray())
     return np.all(sigma > 0.0)
 
 

@@ -20,19 +20,27 @@
       name: "Paul Budden",
       affiliation: "Matrikelnummer: 484284",
     ),
+    (
+      name: "Paula Winter",
+      affiliation: "Matrikelnummer: 409827",
+    ),
   ),
 )
+//#show image: none
 
-= Task
+= Introduction
 
-The Task for this Project was to implement the General Minimum Residual (GMRES) Method for iteratively solving Matrix Vector Problems, with
+The Task for this Project was to implement the General Minimum Residual (GMRES) Method for iteratively solving linear systems of equations, with
 
 - Restarting after m iterations
 - Jacobi preconditioning
 - Gauss-Seidel preconditioning
 - ILU(0) preconditioning
 
-As well as the Conjugate Gradient Method without preconditioning
+As well as the Conjugate Gradient Method without preconditioning.
+
+= Theory
+#lorem(120)
 
 = Implementation
 Both Methods were implemented in Python utilizing the sparse linear algebra functions of _scipy.sparse.linalg_.
@@ -52,14 +60,14 @@ Otherwise arrays of length of the maximum iterations of the inner loop are creat
 
 The left preconditioning $M^(-1) tilde(x)$ for GMRES was implemented as a function $f(tilde(x))$ on the RHS to allow generic preconditioning and the use of more efficient algorithms for GS and ILU(0) preconditioning using _scipy.sparse.linalg.spsolve_triangular_.
 
-The ILU(0) factorization was implemented but ultimately not used, as the implementation lacks sparse optimization.
-The _scipy.sparse.linalg.spilu_ function was used in its place.
+The ILU(0) factorization was implemented, allowing arbitrary patterns, but defaulting to a more efficient ILU(0).
+The implementation creates dense matrices for in place modification of $A$ and lookup of the pattern.
 
 The orthogonality check for GMRES computes $v_1 dot v_(m+1)$ instead of $v_1 dot v_m$, as the first iteration would otherwise compute $v_1 dot v_1 approx 1$, making the scaling in the plots difficult.
 
 == CG
 
-The CG method was implemented exactly like the pseudocode in class, taking care to only compute the matrix-vector-product $A p_m$ only once per iteration.
+The CG method was implemented exactly like the pseudocode in class, taking care to only compute the matrix-vector-product $A p_m$ once per iteration.
 Also no unnecessary loop variables are stored.
 
 = GMRES Results
@@ -69,7 +77,7 @@ Also no unnecessary loop variables are stored.
 
 #figure(
   image("../out/GMRES/full_gmres_rel_res.png"),
-  caption: [Relative Residual for full GMRES and the relative tolerance of $10^(-8)$ ],
+  caption: [Relative Residual for full GMRES and the relative tolerance of $10^(-8)$.],
 ) <full_gmres_res>
 
 Comparing the different preconditioners in plot @full_gmres_res, one can clearly see the benefits of preconditioning.
@@ -81,7 +89,7 @@ The ILU preconditioner performs exceptionally well, converging on the second ite
 == Full GMRES Orthogonaly
 #figure(
   image("../out/GMRES/full_gmres_no_prec_orth.png"),
-  caption: [Orthogonaly $v_1 dot v_(m+1)$ of the Krilov Vectors for full GMRES ],
+  caption: [Orthogonaly $v_1 dot v_(m+1)$ of the Krilov Vectors for full GMRES.],
 ) <full_gmres_orth>
 
 For the full GMRES case, the orthogonality $v_1 dot v_(m+1)$ of the new Krilov Vector should remain $approx 0$.
@@ -111,7 +119,7 @@ There seems to be a minimum for `m=50` for this specific matrix for the not prec
 
 #figure(
   image("../out/GMRES/gmres_matrix.png"),
-  caption: [The values of the matrix stored in `gmres_matrix_msr.txt`],
+  caption: [The values of the matrix stored in `gmres_matrix_msr.txt`.],
 ) <gmrs_matrix>
 
 Comparing the runtimes of the different preconditioners, the ILU preconditioner is significantly faster than the others.
@@ -126,7 +134,7 @@ The runtime needed to precompute the ILU is not included in these figures, so it
 == Preconditioning at `m=200`
 #figure(
   image("../out/GMRES/gmres_200_rel_res.png"),
-  caption: [Relative Residual for restarted GMRES (`m=200`) using different preconditioners and the relative tolerance of $10^(-8)$. ],
+  caption: [Relative Residual for restarted GMRES (`m=200`) using different preconditioners and the relative tolerance of $10^(-8)$.],
 ) <gmres_200_res>
 
 #figure(
@@ -189,7 +197,7 @@ Restarting lowers the memory footprint and a such prevents this.
 // END TABLE
 
 
-= Conjugate Gradient Method Results
+= CG Results
 
 Comparing the error and residuals between both given matrices, one can see that convergence for matrix 1 with 12022 iterations is way slower than for matrix 2 that converged after only 248 iterations.
 The reason for that can be seen in the visualizations of the matrices  in @cg_matrix_1 and @cg_matrix_2.
@@ -207,7 +215,7 @@ The error norm does not fit that pattern.
 
 #figure(
   image("../out/CG/cg_matrix_M1.png"),
-  caption: [The values of the matrix stored in `cg_matrix_msr_1.txt`],
+  caption: [The values of the matrix stored in `cg_matrix_msr_1.txt`.],
 ) <cg_matrix_1>
 
 #figure(
@@ -217,7 +225,7 @@ The error norm does not fit that pattern.
 
 #figure(
   image("../out/CG/cg_matrix_M2.png"),
-  caption: [The values of the matrix stored in `cg_matrix_msr_2.txt`],
+  caption: [The values of the matrix stored in `cg_matrix_msr_2.txt`.],
 ) <cg_matrix_2>
 
 
@@ -255,3 +263,5 @@ The error norm does not fit that pattern.
 )
 
 // END TABLE
+
+= Conclusion

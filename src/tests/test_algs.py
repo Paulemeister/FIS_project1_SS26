@@ -34,13 +34,13 @@ def test_gmres():
     tolerance = 1e-8
     abs_tol = tolerance * np.linalg.norm(b)
 
-    x_sol, res_sol, _ = gmres(A_m, b, tol=tolerance, max_inner=-1)
+    x_sol, res_sol, _ = gmres(A_m, b, tol=tolerance, m=-1)
     res = np.linalg.norm(A_m @ x_sol - b)
 
     assert np.isclose(res_sol, res)
     assert res < abs_tol
 
-    x_sol, res_sol, _ = gmres(A_m, b, tol=tolerance, max_inner=4)
+    x_sol, res_sol, _ = gmres(A_m, b, tol=tolerance, m=4)
     res = np.linalg.norm(A_m @ x_sol - b)
 
     assert np.isclose(res_sol, res)
@@ -66,7 +66,7 @@ def test_restarted_gmres():
     assert res < abs_tol
 
     # actual test
-    x_sol, res_sol, _ = gmres(A_m, b, tol=tolerance, max_inner=3)
+    x_sol, res_sol, _ = gmres(A_m, b, tol=tolerance, m=3)
     res = np.linalg.norm(A_m @ x_sol - b)
 
     assert res < abs_tol

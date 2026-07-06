@@ -49,7 +49,7 @@ def _gmres(
     b: NDArray[Any],
     x0: NDArray[Any],
     tol: float = 1e-8,
-    max_iter: int = -1,
+    m: int = -1,
     l_pre: Callable[[NDArray[Any]], NDArray[Any]] | None = None,
 ) -> tuple[NDArray[Any], float, list[dict[str, Any]]]:
 
@@ -65,15 +65,15 @@ def _gmres(
     b_norm = np.linalg.norm(b)
     r0_norm = np.linalg.norm(r0)
     arr_size = 0
-    use_dyn_arr_size = max_iter < 0
+    use_dyn_arr_size = m < 0
 
     if use_dyn_arr_size:
         arr_size = 10
         V_m = np.zeros((M, arr_size + 1))
         H_m = np.zeros((M + 1, arr_size))
     else:
-        V_m = np.zeros((M, max_iter + 1))
-        H_m = np.zeros((M + 1, max_iter))
+        V_m = np.zeros((M, m + 1))
+        H_m = np.zeros((M + 1, m))
 
     v1 = r0 / r0_norm
     V_m[:, 0] = v1
@@ -85,10 +85,10 @@ def _gmres(
 
     t1 = time.perf_counter()
 
-    if max_iter < 0:
+    if m < 0:
         lim = M
     else:
-        lim = min(max_iter, M)
+        lim = min(m, M)
 
     j = 0
 
@@ -162,7 +162,7 @@ def gmres(
     b: NDArray[Any],
     tol: float = 1e-8,
     x0: NDArray[Any] | None = None,
-    max_inner: int = -1,
+    m: int = -1,
     max_restarts: int = 100,
     l_pre: Callable[[NDArray[Any]], NDArray[Any]] | None = None,
 ) -> tuple[NDArray[Any], float, pd.DataFrame]:
@@ -208,7 +208,7 @@ def gmres(
     while res > abs_tol and i < max_restarts:
         print(f"restart {i}, res: {res} ({res/b_norm})", end="\r")
         used_x0 = x
-        x, res, stats = _gmres(A_m, b, used_x0, tol, max_iter=max_inner, l_pre=l_pre)
+        x, res, stats = _gmres(A_m, b, used_x0, tol, m=m, l_pre=l_pre)
         for entry in stats:
             entry["restart"] = i
             entry["iteration"] += iter_cum
@@ -228,7 +228,7 @@ def gmres(
     stats.attrs["method"] = "GMRS"
     stats.attrs["preconditioner"] = "" if l_pre is None else "Left Precond."
     stats.attrs["restarts"] = i - 1
-    stats.attrs["max_inner"] = max_inner
+    stats.attrs["max_inner"] = m
     stats.attrs["converged"] = converged
     stats.attrs["rel_tolerance"] = tol
     stats.attrs["tolerance"] = abs_tol

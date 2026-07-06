@@ -56,7 +56,7 @@ def gmres_analysis():
             print(f"\nRestart after {n} vectors:")
 
             x_calc, _, gmres_stats = gmres(
-                A_m, b, tol, x0, max_inner=n, max_restarts=max_restarts, l_pre=precon
+                A_m, b, tol, x0, m=n, max_restarts=max_restarts, l_pre=precon
             )
 
             gmres_stats.attrs["preconditioner"] = label
